@@ -20,6 +20,9 @@ def test_noise_config_defaults() -> None:
     assert config.output.directory == Path(".")
     assert config.output.prefix == "noise"
     assert config.seed is None
+    assert config.psd_file is None
+    assert config.low_frequency_cutoff == 2.0
+    assert config.high_frequency_cutoff is None
 
 
 def test_noise_config_custom_values() -> None:
@@ -30,6 +33,9 @@ def test_noise_config_custom_values() -> None:
         sampling_frequency=2048.0,
         output=OutputConfig(directory=Path("out"), prefix="run1"),
         seed=123,
+        psd_file=Path("psd.txt"),
+        low_frequency_cutoff=8.0,
+        high_frequency_cutoff=512.0,
     )
     assert config.detectors == ["H1", "L1", "V1"]
     assert config.duration == 8.0
@@ -37,6 +43,9 @@ def test_noise_config_custom_values() -> None:
     assert config.output.directory == Path("out")
     assert config.output.prefix == "run1"
     assert config.seed == 123
+    assert config.psd_file == Path("psd.txt")
+    assert config.low_frequency_cutoff == 8.0
+    assert config.high_frequency_cutoff == 512.0
 
 
 def test_noise_config_validates_duration() -> None:
@@ -51,6 +60,58 @@ def test_noise_config_validates_detectors() -> None:
     """NoiseConfig requires at least one detector."""
     with pytest.raises(ValidationError, match="at least 1"):
         NoiseConfig(detectors=[])
+
+
+def test_noise_config_validates_cutoff_ordering() -> None:
+    """NoiseConfig requires high_frequency_cutoff to be greater than low_frequency_cutoff."""
+    with pytest.raises(ValidationError, match="greater than low_frequency_cutoff"):
+        NoiseConfig(
+            sampling_frequency=1024.0,
+            low_frequency_cutoff=128.0,
+            high_frequency_cutoff=128.0,
+        )
+
+
+def test_noise_config_validates_cutoffs_are_not_above_nyquist() -> None:
+    """NoiseConfig rejects cutoff values above the Nyquist frequency."""
+    with pytest.raises(ValidationError, match="low_frequency_cutoff must be <= Nyquist"):
+        NoiseConfig(sampling_frequency=1024.0, low_frequency_cutoff=600.0)
+
+    with pytest.raises(ValidationError, match="high_frequency_cutoff must be <= Nyquist"):
+        NoiseConfig(
+            sampling_frequency=1024.0,
+            low_frequency_cutoff=16.0,
+            high_frequency_cutoff=600.0,
+        )
+
+
+def test_noise_config_validator_defensive_negative_cutoff_branches() -> None:
+    """Model validator defensive checks reject negative cutoff values."""
+    low_negative = NoiseConfig.model_construct(
+        detectors=["H1"],
+        duration=4.0,
+        sampling_frequency=1024.0,
+        output=OutputConfig(),
+        seed=None,
+        psd_file=None,
+        low_frequency_cutoff=-1.0,
+        high_frequency_cutoff=256.0,
+    )
+    with pytest.raises(ValueError, match="low_frequency_cutoff must be >= 0"):
+        low_negative.validate_frequency_cutoffs()
+
+    high_negative = NoiseConfig.model_construct(
+        detectors=["H1"],
+        duration=4.0,
+        sampling_frequency=1024.0,
+        output=OutputConfig(),
+        seed=None,
+        psd_file=None,
+        low_frequency_cutoff=8.0,
+        high_frequency_cutoff=-1.0,
+    )
+    with pytest.raises(ValueError, match="high_frequency_cutoff must be >= 0"):
+        high_negative.validate_frequency_cutoffs()
 
 
 def test_load_config_yaml(tmp_path: Path) -> None:
@@ -128,6 +189,15 @@ noise:
     config = load_config(config_file)
     assert config.detectors == ["V1"]
     assert config.duration == 1.0
+
+
+def test_load_config_empty_yaml_uses_defaults(tmp_path: Path) -> None:
+    """load_config treats empty YAML as an empty config mapping."""
+    config_file = tmp_path / "empty.yaml"
+    config_file.write_text("")
+
+    config = load_config(config_file)
+    assert config == NoiseConfig()
 
 
 def test_load_config_file_not_found() -> None:

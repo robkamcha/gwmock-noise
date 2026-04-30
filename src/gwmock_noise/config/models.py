@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class OutputConfig(BaseModel):
@@ -44,5 +44,45 @@ class NoiseConfig(BaseModel):
         default=None,
         description="Random seed for reproducibility. If None, use system entropy.",
     )
+    psd_file: Path | None = Field(
+        default=None,
+        description="Optional PSD file for FFT-based colored-noise simulation.",
+    )
+    low_frequency_cutoff: float = Field(
+        default=2.0,
+        ge=0,
+        description="Lower frequency cutoff applied during colored-noise generation.",
+    )
+    high_frequency_cutoff: float | None = Field(
+        default=None,
+        gt=0,
+        description="Upper frequency cutoff applied during colored-noise generation.",
+    )
+
+    @model_validator(mode="after")
+    def validate_frequency_cutoffs(self) -> NoiseConfig:
+        """Validate cutoff ordering and Nyquist limits."""
+        nyquist = self.sampling_frequency / 2
+        low = self.low_frequency_cutoff
+        high = self.high_frequency_cutoff
+
+        if low < 0:
+            raise ValueError("low_frequency_cutoff must be >= 0.")
+        if low > nyquist:
+            raise ValueError(
+                f"low_frequency_cutoff must be <= Nyquist ({nyquist} Hz) for sampling_frequency={self.sampling_frequency} Hz."
+            )
+
+        if high is not None:
+            if high < 0:
+                raise ValueError("high_frequency_cutoff must be >= 0.")
+            if high > nyquist:
+                raise ValueError(
+                    f"high_frequency_cutoff must be <= Nyquist ({nyquist} Hz) for sampling_frequency={self.sampling_frequency} Hz."
+                )
+            if high <= low:
+                raise ValueError("high_frequency_cutoff must be greater than low_frequency_cutoff.")
+
+        return self
 
     model_config = {"frozen": False, "extra": "ignore"}
