@@ -50,6 +50,15 @@ extras).
 
 ::: gwmock_noise.output
 
+## GWOSC real-noise fetching
+
+Models, segment filtering, data fetching, and a `NoiseSimulator` wrapper for
+retrieving real detector strain data from GWOSC.
+
+::: gwmock_noise.gwosc
+
+::: gwmock_noise.simulators.real_noise
+
 ## Command-line interface
 
 Typer application and the `simulate` command used by the `gwmock-noise` console
