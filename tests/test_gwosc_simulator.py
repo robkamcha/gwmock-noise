@@ -274,7 +274,7 @@ class TestGwoscNoiseSimulator:
         short = FakeTimeSeries(np.arange(10.0), sample_rate=4096.0)
         longest = FakeTimeSeries(np.arange(100.0), sample_rate=4096.0)
         medium = FakeTimeSeries(np.arange(40.0), sample_rate=4096.0)
-        monkeypatch.setattr(sim._fetcher, "fetch_clean", lambda: {"H1": [short, longest, medium]})
+        monkeypatch.setattr(sim._fetcher, "fetch_clean", lambda detectors=None: {"H1": [short, longest, medium]})
 
         result = sim.generate(duration=100.0, sampling_frequency=4096.0, detectors=["H1"])
 
@@ -299,7 +299,7 @@ class TestGwoscNoiseSimulator:
 
         first = FakeTimeSeries(np.arange(10.0), sample_rate=4096.0)
         second = FakeTimeSeries(np.arange(100.0), sample_rate=4096.0)
-        monkeypatch.setattr(sim._fetcher, "fetch_clean", lambda: {"H1": [first, second]})
+        monkeypatch.setattr(sim._fetcher, "fetch_clean", lambda detectors=None: {"H1": [first, second]})
 
         segments = sim.generate_segments(duration=100.0, sampling_frequency=4096.0, detectors=["H1"])
 
@@ -347,6 +347,88 @@ class TestGwoscNoiseSimulator:
             assert "H1" in chunk
             assert isinstance(chunk["H1"], np.ndarray)
             assert len(chunk["H1"]) == int(2.0 * 4096.0)
+
+    def test_check_availability_passthrough(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """check_availability delegates to the fetcher and flags missing data."""
+        _patch_imports(monkeypatch)
+
+        from gwmock_noise.simulators.real_noise import GwoscNoiseSimulator
+
+        class PartialLocate:
+            @staticmethod
+            def get_urls(detector: str, start: int, end: int, sample_rate: int = 4096, host: str = "") -> list[str]:
+                if detector == "H1":
+                    raise ValueError("Cannot find a GWOSC dataset")
+                return [f"https://gwosc.org/{detector}-{start}-4096.hdf5"]
+
+        monkeypatch.setattr("gwmock_noise.gwosc.fetcher._import_gwosc_locate", lambda: PartialLocate)
+
+        config = GwoscNoiseConfig(
+            gps_start=1401562985,
+            gps_end=1401563241,
+            detectors=["H1", "L1"],
+        )
+        sim = GwoscNoiseSimulator(config)
+
+        assert sim.check_availability() == {"H1": False, "L1": True}
+
+    def test_generate_raises_clear_error_when_data_unavailable(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Generate surfaces a clear, detector-naming error when strain is unavailable."""
+        _patch_imports(monkeypatch)
+
+        from gwmock_noise.simulators.real_noise import GwoscNoiseSimulator
+
+        class PartialLocate:
+            @staticmethod
+            def get_urls(detector: str, start: int, end: int, sample_rate: int = 4096, host: str = "") -> list[str]:
+                if detector == "H1":
+                    raise ValueError("Cannot find a GWOSC dataset")
+                return [f"https://gwosc.org/{detector}-{start}-4096.hdf5"]
+
+        monkeypatch.setattr("gwmock_noise.gwosc.fetcher._import_gwosc_locate", lambda: PartialLocate)
+
+        config = GwoscNoiseConfig(
+            gps_start=1401562985,
+            gps_end=1401563241,
+            detectors=["H1", "L1"],
+            filters=GwoscFilterConfig(filter_types=[]),
+        )
+        sim = GwoscNoiseSimulator(config)
+
+        with pytest.raises(ValueError, match=r"no published strain data.*H1"):
+            sim.generate(duration=256.0, sampling_frequency=4096.0, detectors=["H1", "L1"])
+
+    def test_generate_available_subset_not_blocked_by_unavailable_detector(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Requesting an available subset succeeds even if another config detector is unavailable."""
+        _patch_imports(monkeypatch)
+
+        from gwmock_noise.simulators.real_noise import GwoscNoiseSimulator
+
+        class PartialLocate:
+            @staticmethod
+            def get_urls(detector: str, start: int, end: int, sample_rate: int = 4096, host: str = "") -> list[str]:
+                if detector == "H1":
+                    raise ValueError("Cannot find a GWOSC dataset")
+                return [f"https://gwosc.org/{detector}-{start}-4096.hdf5"]
+
+        monkeypatch.setattr("gwmock_noise.gwosc.fetcher._import_gwosc_locate", lambda: PartialLocate)
+
+        config = GwoscNoiseConfig(
+            gps_start=100.0,
+            gps_end=104.0,
+            detectors=["H1", "L1", "V1"],
+            sample_rate=4096.0,
+            filters=GwoscFilterConfig(filter_types=[]),
+        )
+        sim = GwoscNoiseSimulator(config)
+
+        # H1 is unavailable, but requesting only the available subset must not be blocked.
+        result = sim.generate(duration=4.0, sampling_frequency=4096.0, detectors=["L1", "V1"])
+
+        assert set(result) == {"L1", "V1"}
+        assert all(isinstance(arr, np.ndarray) and len(arr) > 0 for arr in result.values())
 
     def test_lazy_export_from_top_level(self) -> None:
         """GwoscNoiseSimulator is lazily exportable from the top-level package."""
