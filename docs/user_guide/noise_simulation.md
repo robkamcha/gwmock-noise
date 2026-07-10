@@ -155,17 +155,17 @@ real O3 glitch reconstructions from the
 (CC BY 4.0). The dataset holds 35,000 whitened, amplitude-normalized 2-second
 waveforms at 4096 Hz covering seven Gravity Spy classes (`Blip`,
 `Fast_Scattering`, `Koi_Fish`, `Low_Frequency_Burst`, `Scattered_Light`,
-`Tomte`, `Whistle`); the ~2.3 GB
-samples file is downloaded lazily on first use and cached by `huggingface_hub`.
+`Tomte`, `Whistle`); the ~2.3 GB samples file is downloaded lazily on first use
+and cached by `huggingface_hub`.
 
 Each injected event draws a reconstruction from the configured classes,
 resamples it to the simulation rate, colors it against `psd_file`, and rescales
 it so its optimal SNR `sqrt(4 df sum(|h(f)|^2 / S(f)))` against that PSD equals
-the configured target. `snr` accepts either a single number for all classes or
-a per-class mapping. `rate` likewise accepts either a single number — the
-total Poisson rate shared by all configured classes, drawn uniformly — or a
-per-class mapping, in which case each class occurs at its own rate (the total
-rate is their sum):
+the configured target. `snr` accepts either a single number for all classes or a
+per-class mapping. `rate` likewise accepts either a single number — the total
+Poisson rate shared by all configured classes, drawn uniformly — or a per-class
+mapping, in which case each class occurs at its own rate (the total rate is
+their sum):
 
 ```toml
 [[components]]
@@ -175,13 +175,14 @@ models = [
 ]
 ```
 
-With the default `amplitude_distribution` mean of 1.0 and std of 0.0 the
-target SNR is met exactly; a non-zero std adds multiplicative SNR scatter.
-Events are placed by the same Poisson `rate` process as the other glitch
-models, run independently per detector: each detector receives its own event
-times and waveform draws, and `rate` is the event rate seen by each detector. Note that resampling below 4096 Hz uses linear interpolation without
-an anti-aliasing filter, which aliases high-frequency content (the SNR
-calibration itself is unaffected).
+With the default `amplitude_distribution` mean of 1.0 and std of 0.0 the target
+SNR is met exactly; a non-zero std adds multiplicative SNR scatter. Events are
+placed by the same Poisson `rate` process as the other glitch models, run
+independently per detector: each detector receives its own event times and
+waveform draws, and `rate` is the event rate seen by each detector. Note that
+resampling below 4096 Hz uses linear interpolation without an anti-aliasing
+filter, which aliases high-frequency content (the SNR calibration itself is
+unaffected).
 
 ## Programmatic usage
 
