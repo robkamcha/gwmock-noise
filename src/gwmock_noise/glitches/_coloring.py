@@ -6,7 +6,7 @@ from typing import NamedTuple
 
 import numpy as np
 
-from gwmock_noise.simulators.colored import _tukey_window
+from gwmock_noise.simulators.colored import _resolve_taper_alpha, _tukey_window
 
 
 class ColoredWaveform(NamedTuple):
@@ -76,7 +76,7 @@ def color_whitened_waveform(  # noqa: PLR0913
     )
     interpolated_psd[frequency_mask] = np.clip(interpolated_psd[frequency_mask], a_min=0.0, a_max=None)
     coloring_psd = interpolated_psd.copy()
-    coloring_psd[frequency_mask] *= _tukey_window(masked_frequencies.size)
+    coloring_psd[frequency_mask] *= _tukey_window(masked_frequencies.size, _resolve_taper_alpha(masked_frequencies))
 
     white_waveform_fd = np.fft.rfft(white_waveform) / sampling_frequency
     frequency_series = np.zeros_like(white_waveform_fd, dtype=np.complex128)

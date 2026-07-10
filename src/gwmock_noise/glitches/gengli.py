@@ -13,7 +13,6 @@ import numpy as np
 from gwmock_noise.glitches._coloring import color_whitened_waveform
 from gwmock_noise.glitches.models import GlitchModel
 from gwmock_noise.simulators._spectral import load_spectral_series
-from gwmock_noise.simulators.colored import _resolve_taper_alpha, _tukey_window
 
 POPULATION_SNR_DATASET = "snr"
 UINT32_EXCLUSIVE_MAX = 2**32
