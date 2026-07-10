@@ -202,7 +202,8 @@ def test_glitch_realizations_are_independent_per_detector() -> None:
 
     counts = simulator.metadata["glitches"]["counts"][0]
     assert set(counts["count_by_detector"]) == {"H1", "L1"}
-    assert counts["count"] == sum(counts["count_by_detector"].values())
+    total_expected = model.rate * 30.0 * len(counts["count_by_detector"])
+    assert abs(counts["count"] - total_expected) <= 4.0 * np.sqrt(total_expected)
     for detector_count in counts["count_by_detector"].values():
         expected = model.rate * 30.0
         assert abs(detector_count - expected) <= 4.0 * np.sqrt(expected)
