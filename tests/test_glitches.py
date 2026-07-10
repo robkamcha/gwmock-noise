@@ -185,6 +185,29 @@ def test_inject_glitches_is_deterministic_given_same_seed() -> None:
     assert first.metadata["glitches"]["counts"] == second.metadata["glitches"]["counts"]
 
 
+def test_glitch_realizations_are_independent_per_detector() -> None:
+    """Each detector runs its own Poisson process with its own waveforms."""
+    model = BlipGlitch(
+        rate=2.0,
+        amplitude_distribution=LogNormalAmplitudeDistribution(mean=1.0, std=0.0),
+        width=0.01,
+    )
+    simulator = InjectGlitches(ZeroNoiseSimulator(), [model])
+
+    result = simulator.generate(duration=30.0, sampling_frequency=256.0, detectors=["H1", "L1"], seed=7)
+
+    assert np.max(np.abs(result["H1"])) > 0.0
+    assert np.max(np.abs(result["L1"])) > 0.0
+    assert not np.array_equal(result["H1"], result["L1"])
+
+    counts = simulator.metadata["glitches"]["counts"][0]
+    assert set(counts["count_by_detector"]) == {"H1", "L1"}
+    assert counts["count"] == sum(counts["count_by_detector"].values())
+    for detector_count in counts["count_by_detector"].values():
+        expected = model.rate * 30.0
+        assert abs(detector_count - expected) <= 4.0 * np.sqrt(expected)
+
+
 def test_default_simulator_reports_glitch_metadata(tmp_path: Path) -> None:
     """DefaultNoiseSimulator dispatches glitch injection from config models."""
     out_dir = tmp_path / "output"

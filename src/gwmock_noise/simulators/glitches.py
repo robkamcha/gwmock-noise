@@ -72,7 +72,13 @@ class _ZeroNoiseSimulator:
 
 
 class InjectGlitches:
-    """Wrap a base simulator and inject transient glitches additively."""
+    """Wrap a base simulator and inject transient glitches additively.
+
+    Each glitch model runs an independent Poisson process per detector, so
+    every detector receives its own event times and waveform realizations.
+    ``GlitchModel.rate`` is therefore the event rate seen by each individual
+    detector.
+    """
 
     def __init__(self, base: NoiseSimulator, glitch_models: list[GlitchModel]) -> None:
         """Initialize the additive glitch wrapper."""
@@ -88,19 +94,16 @@ class InjectGlitches:
 
         self._elapsed_time = 0.0
         self._rng: np.random.Generator | None = None
-        self._next_event_times = np.full(len(self.glitch_models), np.inf, dtype=float)
-        self._event_counts = np.zeros(len(self.glitch_models), dtype=int)
+        self._next_event_times: dict[tuple[int, str], float] = {}
+        self._event_counts: dict[tuple[int, str], int] = {}
 
     def _initialize_process(self, seed: int | None) -> None:
-        """Reset the Poisson-process state."""
+        """Reset the per-model, per-detector Poisson-process state."""
         self.seed = seed
         self._elapsed_time = 0.0
         self._rng = np.random.default_rng(seed)
-        self._event_counts = np.zeros(len(self.glitch_models), dtype=int)
-        self._next_event_times = np.array(
-            [self._draw_interarrival(model.rate) for model in self.glitch_models],
-            dtype=float,
-        )
+        self._next_event_times = {}
+        self._event_counts = {}
 
     def _draw_interarrival(self, rate: float) -> float:
         """Draw the next waiting time for one glitch process."""
@@ -151,18 +154,20 @@ class InjectGlitches:
             raise RuntimeError("glitch RNG was not initialized.")
 
         for index, model in enumerate(self.glitch_models):
-            event_time = float(self._next_event_times[index])
-            while event_time < segment_end:
-                sample_index = int((event_time - segment_start) * sampling_frequency)
-                waveform = model.generate_waveform(sampling_frequency, rng=self._rng)
-                stop_index = min(n_samples, sample_index + waveform.size)
-                if stop_index > sample_index:
-                    segment = waveform[: stop_index - sample_index]
-                    for detector in runtime_detectors:
-                        combined[detector][sample_index:stop_index] += segment
-                    self._event_counts[index] += 1
-                event_time += self._draw_interarrival(model.rate)
-            self._next_event_times[index] = event_time
+            for detector in runtime_detectors:
+                key = (index, detector)
+                if key not in self._next_event_times:
+                    self._next_event_times[key] = segment_start + self._draw_interarrival(model.rate)
+                event_time = self._next_event_times[key]
+                while event_time < segment_end:
+                    sample_index = int((event_time - segment_start) * sampling_frequency)
+                    waveform = model.generate_waveform(sampling_frequency, rng=self._rng)
+                    stop_index = min(n_samples, sample_index + waveform.size)
+                    if stop_index > sample_index:
+                        combined[detector][sample_index:stop_index] += waveform[: stop_index - sample_index]
+                        self._event_counts[key] = self._event_counts.get(key, 0) + 1
+                    event_time += self._draw_interarrival(model.rate)
+                self._next_event_times[key] = event_time
 
         self._elapsed_time = segment_end
         return combined
@@ -183,15 +188,26 @@ class InjectGlitches:
     def metadata(self) -> dict[str, Any]:
         """Return additive-wrapper metadata."""
         base_metadata = dict(self.base.metadata)
+        counts = []
+        for index, model in enumerate(self.glitch_models):
+            count_by_detector = {
+                detector: int(self._event_counts.get((model_index, detector), 0))
+                for model_index, detector in sorted(self._next_event_times)
+                if model_index == index
+            }
+            counts.append(
+                {
+                    "kind": model.kind,
+                    "count": sum(count_by_detector.values()),
+                    "count_by_detector": count_by_detector,
+                }
+            )
         return base_metadata | {
             "implementation": "inject_glitches",
             "base_implementation": base_metadata.get("implementation"),
             "glitches": {
                 "models": [model.serialize() for model in self.glitch_models],
                 "elapsed_time_seconds": self._elapsed_time,
-                "counts": [
-                    {"kind": model.kind, "count": int(count)}
-                    for model, count in zip(self.glitch_models, self._event_counts, strict=True)
-                ],
+                "counts": counts,
             },
         }

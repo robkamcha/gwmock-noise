@@ -29,6 +29,7 @@ dependencies = [
 
 [project.optional-dependencies]
 frame = ["gwpy>=4.0.1", "lalsuite>=7.26.15"]
+deepextractor = ["huggingface-hub>=0.20"]
 gengli = ["gengli>=0.2.0"]
 gwpy = ["gwpy>=4.0.1"]
 gwosc = ["gwpy>=4.0.1", "gwosc>=0.8.3"]
