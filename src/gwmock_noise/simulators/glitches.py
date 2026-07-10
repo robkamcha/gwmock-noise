@@ -157,6 +157,8 @@ class InjectGlitches:
             for detector in runtime_detectors:
                 key = (index, detector)
                 if key not in self._next_event_times:
+                    # A pair first seen mid-stream (e.g. a detector added between
+                    # chunks) starts its Poisson clock at the current segment start.
                     self._next_event_times[key] = segment_start + self._draw_interarrival(model.rate)
                 event_time = self._next_event_times[key]
                 while event_time < segment_end:

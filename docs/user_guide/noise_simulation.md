@@ -99,6 +99,12 @@ models = [
 ]
 ```
 
+Every glitch model runs an independent Poisson process per detector, so event
+times and waveforms are uncorrelated between detectors and `rate` is the event
+rate seen by each individual detector. The metadata sidecar reports, for each
+model, the total number of injected events (`count`) plus a per-detector
+breakdown (`count_by_detector`).
+
 ## Gengli blip glitches
 
 `gwmock-noise[gengli]` adds a file-backed `GengliBlipGlitch` model that plugs

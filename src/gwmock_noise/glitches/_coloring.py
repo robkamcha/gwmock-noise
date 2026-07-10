@@ -97,6 +97,11 @@ def optimal_snr(colored: ColoredWaveform, *, sampling_frequency: float) -> float
     ``rho^2 = 4 df sum(|h(f)|^2 / S(f))`` over the analysis band, skipping
     bins where the PSD vanishes (those carry no colored signal energy).
 
+    The denominator must be the raw interpolated PSD, not the Tukey-windowed
+    PSD used for coloring: dividing by the windowed PSD would cancel the taper
+    and overstate rho at the band edges relative to a matched filter against
+    the true PSD, so rescaled waveforms would land below their target SNR.
+
     Args:
         colored: Output of :func:`color_whitened_waveform`.
         sampling_frequency: Sampling frequency of the waveform in Hz.

@@ -156,7 +156,12 @@ class DeepExtractorGlitch(GlitchModel):
         return float(self.snr)
 
     def _draw_class(self, rng: np.random.Generator) -> str:
-        """Draw one glitch class, weighted by per-class rates when configured."""
+        """Draw one glitch class, weighted by per-class rates when configured.
+
+        Falls back to a uniform draw for scalar-rate models and for the direct
+        ``generate_waveform`` call on a model whose per-class rates are all
+        zero (the injector itself never fires events for a zero total rate).
+        """
         configured_classes = self.glitch_classes or []
         if self._class_rates is not None:
             weights = np.array([self._class_rates[name] for name in configured_classes], dtype=float)
