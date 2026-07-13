@@ -19,32 +19,31 @@ classifiers = [
 requires-python = ">=3.12"
 dynamic = ["version"]
 dependencies = [
-  "numpy>=2.5.1",
-  "h5py>=3.16.0",
-  "pydantic>=2.13.4",
-  "scipy>=1.18.0",
-  "pyyaml>=6.0.3",
-  "typer>=0.26.8",
+  "numpy>=2.1.0",
+  "h5py>=3.12.1",
+  "pydantic>=2.9.0",
+  "scipy>=1.15.0",
+  "pyyaml>=6.0",
+  "typer>=0.16.0", # click 8.2 compatibility; the SPEC 0 floor (0.13) predates it
 ]
 
 [project.optional-dependencies]
-frame = ["gwpy>=4.0.1", "lalsuite>=7.26.15"]
-deepextractor = ["huggingface-hub>=0.20"]
+frame = ["gwpy>=4.0.0", "lalsuite>=7.23"]
 gengli = ["gengli>=0.2.0"]
-gwpy = ["gwpy>=4.0.1"]
-gwosc = ["gwpy>=4.0.1", "gwosc>=0.8.3"]
+gwpy = ["gwpy>=4.0.0"]
+gwosc = ["gwpy>=4.0.0", "gwosc>=0.8.0"]
 
 [dependency-groups]
 dev = [
-  "ruff>=0.15.20",
+  "ruff>=0.15.21",
   "prek>=0.4.8",
   "pytest-cov>=7.1.0",
   "pytest-mock>=3.15.1",
   "pytest>=9.1.1",
   "pytest-github-actions-annotate-failures>=0.4.2",
 ]
-docs = ["zensical>=0.0.47", "mkdocstrings-python>=2.0.5"]
-build = ["hatch>=1.17.0"]
+docs = ["zensical>=0.0.50", "mkdocstrings-python>=2.0.5"]
+build = ["hatch>=1.17.1"]
 release = ["git-cliff>=2.13.1"]
 
 [project.scripts]
@@ -56,6 +55,11 @@ Source = "https://github.com/Leuven-Gravity-Institute/gwmock_noise"
 Tracker = "https://github.com/Leuven-Gravity-Institute/gwmock_noise/issues"
 Home = "https://github.com/Leuven-Gravity-Institute/gwmock_noise"
 "Release Notes" = "https://github.com/Leuven-Gravity-Institute/gwmock_noise/releases"
+
+[tool.dependency-support-policy]
+policy = "spec0"
+groups = ["project", "optional"]
+lock = "minimal"
 
 [tool.uv-dynamic-versioning]
 vcs = "git"      # default
