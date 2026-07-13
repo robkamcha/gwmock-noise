@@ -53,7 +53,11 @@ def color_whitened_waveform(  # noqa: PLR0913
     Raises:
         ValueError: If the analysis band is invalid or empty.
     """
+    if sampling_frequency <= 0.0:
+        raise ValueError("sampling_frequency must be greater than zero.")
     n_samples = int(white_waveform.size)
+    if n_samples == 0:
+        raise ValueError("white_waveform must contain at least one sample.")
     nyquist = sampling_frequency / 2.0
     if high_frequency_cutoff is None:
         high_frequency_cutoff = nyquist
