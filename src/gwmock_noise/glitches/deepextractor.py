@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
@@ -30,6 +31,36 @@ GLITCH_CLASS_NAMES = (
 )
 
 
+def _connection_error_types(hf_hub: Any) -> tuple[type[BaseException], ...]:
+    """Resolve the exception types that signal an unreachable Hub.
+
+    Collected dynamically so the module keeps working across huggingface_hub
+    versions and whether or not ``requests`` is importable. ``requests`` errors
+    cover raw connectivity failures; ``LocalEntryNotFoundError`` is what
+    huggingface_hub raises when it can neither reach the Hub nor find the file
+    in the cache.
+    """
+    types: list[type[BaseException]] = []
+    errors_module = getattr(hf_hub, "errors", None)
+    if errors_module is None:
+        try:
+            errors_module = importlib.import_module("huggingface_hub.errors")
+        except ModuleNotFoundError:  # pragma: no cover - errors submodule always ships with the hub
+            errors_module = None
+    for name in ("LocalEntryNotFoundError", "OfflineModeIsEnabled"):
+        candidate = getattr(errors_module, name, None)
+        if isinstance(candidate, type) and issubclass(candidate, BaseException):
+            types.append(candidate)
+    try:
+        requests = importlib.import_module("requests")
+    except ModuleNotFoundError:  # pragma: no cover - requests ships with huggingface_hub
+        pass
+    else:
+        types.append(requests.exceptions.ConnectionError)
+        types.append(requests.exceptions.Timeout)
+    return tuple(types) or (OSError,)
+
+
 def _load_hf_hub() -> Any:
     """Import the optional huggingface_hub dependency with a focused error."""
     try:
@@ -53,7 +84,14 @@ class DeepExtractorGlitch(GlitchModel):
     the simulation rate, colored against the configured PSD, and rescaled so
     its optimal SNR ``sqrt(4 df sum(|h(f)|^2 / S(f)))`` against that PSD
     matches the configured target. The dataset (~2.3 GB) is downloaded lazily
-    on first use and cached by huggingface_hub.
+    on first use and cached by huggingface_hub; later runs reuse the cached
+    files. On each run the Hub is contacted first to validate the cached
+    files' ETags and download anything missing. If the Hub is unreachable, a
+    warning notes that the ETag check was skipped and the cached files are used
+    instead; if they are not cached, the first ``generate_waveform`` raises
+    huggingface_hub's ``LocalEntryNotFoundError`` (a ``FileNotFoundError``
+    subclass). Set ``local_files_only=True`` to skip the network unconditionally
+    and read straight from the cache.
 
     ``rate`` accepts either a single number — the total Poisson rate shared by
     all configured classes, drawn uniformly — or a mapping from class name to
@@ -72,6 +110,7 @@ class DeepExtractorGlitch(GlitchModel):
     low_frequency_cutoff: float = 2.0
     high_frequency_cutoff: float | None = None
     repo_id: str = DEEPEXTRACTOR_REPO_ID
+    local_files_only: bool = False
     kind: Literal["deepextractor"] = field(init=False, default="deepextractor")
     _psd_frequencies: np.ndarray = field(init=False, repr=False)
     _psd_values: np.ndarray = field(init=False, repr=False)
@@ -170,15 +209,36 @@ class DeepExtractorGlitch(GlitchModel):
                 return configured_classes[int(rng.choice(len(configured_classes), p=weights / total))]
         return configured_classes[int(rng.integers(0, len(configured_classes)))]
 
+    def _download_dataset_file(self, hf_hub: Any, filename: str) -> str:
+        """Fetch one dataset file, preferring the network but tolerating outages.
+
+        When ``local_files_only`` is set the network is skipped entirely. Otherwise
+        the online path runs first so a cached file's ETag is validated against the
+        Hub. If the Hub is unreachable, a warning notes the skipped ETag check and
+        the cached copy is used; a genuinely missing cache then raises
+        huggingface_hub's ``LocalEntryNotFoundError``.
+        """
+        kwargs = {"repo_id": self.repo_id, "filename": filename, "repo_type": "dataset"}
+        if self.local_files_only:
+            return hf_hub.hf_hub_download(**kwargs, local_files_only=True)
+        try:
+            return hf_hub.hf_hub_download(**kwargs, local_files_only=False)
+        except _connection_error_types(hf_hub) as exc:
+            warnings.warn(
+                f"Could not reach the Hugging Face Hub to validate '{filename}' ({exc}); "
+                "skipping the ETag check and falling back to the local cache.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            return hf_hub.hf_hub_download(**kwargs, local_files_only=True)
+
     def _get_dataset(self) -> tuple[Any, dict[str, np.ndarray]]:
         """Download (if needed) and memory-map the reconstruction dataset."""
         if self._samples is None or self._class_indices is None:
             hf_hub = _load_hf_hub()
-            samples_path = hf_hub.hf_hub_download(repo_id=self.repo_id, filename=SAMPLES_FILENAME, repo_type="dataset")
-            labels_path = hf_hub.hf_hub_download(repo_id=self.repo_id, filename=LABELS_FILENAME, repo_type="dataset")
-            label_order_path = hf_hub.hf_hub_download(
-                repo_id=self.repo_id, filename=LABEL_ORDER_FILENAME, repo_type="dataset"
-            )
+            samples_path = self._download_dataset_file(hf_hub, SAMPLES_FILENAME)
+            labels_path = self._download_dataset_file(hf_hub, LABELS_FILENAME)
+            label_order_path = self._download_dataset_file(hf_hub, LABEL_ORDER_FILENAME)
 
             samples = np.load(samples_path, mmap_mode="r")
             labels = np.asarray(np.load(labels_path), dtype=float)
@@ -260,4 +320,5 @@ class DeepExtractorGlitch(GlitchModel):
             "low_frequency_cutoff": self.low_frequency_cutoff,
             "high_frequency_cutoff": self.high_frequency_cutoff,
             "repo_id": self.repo_id,
+            "local_files_only": self.local_files_only,
         }

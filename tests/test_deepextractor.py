@@ -56,7 +56,7 @@ def hf_stub(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> list[str]:
     _write_dataset(tmp_path)
     downloads: list[str] = []
 
-    def fake_download(*, repo_id: str, filename: str, repo_type: str) -> str:
+    def fake_download(*, repo_id: str, filename: str, repo_type: str, local_files_only: bool = False) -> str:
         assert repo_type == "dataset"
         assert repo_id
         downloads.append(filename)
@@ -143,7 +143,9 @@ def test_per_class_rate_sums_to_total_and_weights_draws(
     monkeypatch.setattr(
         deepextractor_module,
         "_load_hf_hub",
-        lambda: SimpleNamespace(hf_hub_download=lambda *, repo_id, filename, repo_type: str(tmp_path / filename)),
+        lambda: SimpleNamespace(
+            hf_hub_download=lambda *, repo_id, filename, repo_type, local_files_only=False: str(tmp_path / filename)
+        ),
     )
     psd_file = tmp_path / "psd.txt"
     _write_flat_psd(psd_file)
@@ -184,6 +186,84 @@ def test_rejects_invalid_frequency_cutoffs(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="high_frequency_cutoff"):
         _make_model(psd_file, low_frequency_cutoff=64.0, high_frequency_cutoff=32.0)
+
+
+def test_local_files_only_is_forwarded_to_downloader(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The local_files_only flag reaches every hf_hub_download call."""
+    _write_dataset(tmp_path)
+    captured: list[bool] = []
+
+    def fake_download(*, repo_id: str, filename: str, repo_type: str, local_files_only: bool) -> str:
+        captured.append(local_files_only)
+        return str(tmp_path / filename)
+
+    monkeypatch.setattr(
+        deepextractor_module,
+        "_load_hf_hub",
+        lambda: SimpleNamespace(hf_hub_download=fake_download),
+    )
+    psd_file = tmp_path / "psd.txt"
+    _write_flat_psd(psd_file)
+    model = _make_model(psd_file, local_files_only=True)
+
+    model.generate_waveform(4096.0, rng=np.random.default_rng(0))
+
+    assert captured == [True, True, True]
+
+
+class _StubLocalEntryNotFoundError(FileNotFoundError):
+    """Stand-in for huggingface_hub's LocalEntryNotFoundError."""
+
+
+def _offline_hf_hub(tmp_path: Path, *, cached: bool) -> SimpleNamespace:
+    """Build an hf_hub stub whose online download fails as if offline."""
+
+    def fake_download(*, repo_id: str, filename: str, repo_type: str, local_files_only: bool) -> str:
+        if not local_files_only:
+            raise _StubLocalEntryNotFoundError("Hub unreachable")
+        if not cached:
+            raise _StubLocalEntryNotFoundError("not in cache")
+        return str(tmp_path / filename)
+
+    return SimpleNamespace(
+        hf_hub_download=fake_download,
+        errors=SimpleNamespace(LocalEntryNotFoundError=_StubLocalEntryNotFoundError),
+    )
+
+
+def test_offline_falls_back_to_cache_with_warning(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unreachable Hub warns about the skipped ETag check and reuses the cache."""
+    _write_dataset(tmp_path)
+    monkeypatch.setattr(deepextractor_module, "_load_hf_hub", lambda: _offline_hf_hub(tmp_path, cached=True))
+    psd_file = tmp_path / "psd.txt"
+    _write_flat_psd(psd_file)
+    model = _make_model(psd_file)
+
+    with pytest.warns(RuntimeWarning, match="skipping the ETag check"):
+        waveform = model.generate_waveform(4096.0, rng=np.random.default_rng(0))
+
+    assert np.max(np.abs(waveform)) > 0.0
+
+
+def test_offline_without_cache_raises(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unreachable Hub with no cached files surfaces the not-found error."""
+    _write_dataset(tmp_path)
+    monkeypatch.setattr(deepextractor_module, "_load_hf_hub", lambda: _offline_hf_hub(tmp_path, cached=False))
+    psd_file = tmp_path / "psd.txt"
+    _write_flat_psd(psd_file)
+    model = _make_model(psd_file)
+
+    with pytest.warns(RuntimeWarning, match="skipping the ETag check"), pytest.raises(_StubLocalEntryNotFoundError):
+        model.generate_waveform(4096.0, rng=np.random.default_rng(0))
 
 
 def test_generate_waveform_requires_optional_dependency(
@@ -251,7 +331,9 @@ def test_class_selection_respects_label_order(tmp_path: Path, monkeypatch: pytes
     monkeypatch.setattr(
         deepextractor_module,
         "_load_hf_hub",
-        lambda: SimpleNamespace(hf_hub_download=lambda *, repo_id, filename, repo_type: str(tmp_path / filename)),
+        lambda: SimpleNamespace(
+            hf_hub_download=lambda *, repo_id, filename, repo_type, local_files_only=False: str(tmp_path / filename)
+        ),
     )
     psd_file = tmp_path / "psd.txt"
     _write_flat_psd(psd_file)
@@ -316,6 +398,7 @@ def test_serialize_reports_full_configuration(tmp_path: Path) -> None:
         "low_frequency_cutoff": 2.0,
         "high_frequency_cutoff": None,
         "repo_id": "tomdooney/deepextractor-glitch-reconstructions",
+        "local_files_only": False,
     }
 
 

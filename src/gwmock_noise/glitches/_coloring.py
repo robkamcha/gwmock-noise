@@ -17,7 +17,8 @@ class ColoredWaveform(NamedTuple):
         frequency_series: Colored one-sided frequency series (``rfft / fs``).
         interpolated_psd: Raw interpolated PSD on the rFFT grid (pre-window,
             clipped to be non-negative, zero outside the analysis band).
-        band_mask: Boolean mask selecting the analysis-band frequency bins.
+        band_mask: Boolean mask selecting the analysis-band frequency bins,
+            with the DC and Nyquist bins excluded.
     """
 
     time_series: np.ndarray
@@ -65,7 +66,15 @@ def color_whitened_waveform(  # noqa: PLR0913
         raise ValueError("high_frequency_cutoff must not exceed the Nyquist frequency.")
 
     frequencies = np.fft.rfftfreq(n_samples, d=1.0 / sampling_frequency)
-    frequency_mask = (frequencies >= low_frequency_cutoff) & (frequencies <= high_frequency_cutoff)
+    # Exclude the DC and Nyquist bins: they are real-valued in the rFFT and the
+    # one-sided ``4 df sum(|h|^2 / S)`` inner product would over-weight them by a
+    # factor of two, biasing the SNR calibration at the band edges.
+    frequency_mask = (
+        (frequencies > 0.0)
+        & (frequencies < nyquist)
+        & (frequencies >= low_frequency_cutoff)
+        & (frequencies <= high_frequency_cutoff)
+    )
     if not np.any(frequency_mask):
         raise ValueError("The requested frequency range contains no simulation bins.")
 

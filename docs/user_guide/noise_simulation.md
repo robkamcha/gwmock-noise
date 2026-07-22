@@ -190,6 +190,14 @@ resampling below 4096 Hz uses linear interpolation without an anti-aliasing
 filter, which aliases high-frequency content (the SNR calibration itself is
 unaffected).
 
+The dataset is cached by `huggingface_hub` after the first download, so later
+runs reuse the cached files. Each run contacts the Hub first to validate the
+cached files' ETags and fetch anything missing; if the Hub is unreachable a
+warning notes that the ETag check was skipped and the cached files are used
+instead, and only a genuinely missing cache raises `LocalEntryNotFoundError`.
+Set `local_files_only = true` to skip the network unconditionally and read
+straight from the cache.
+
 ## Programmatic usage
 
 You can also construct configurations and run the simulator directly from
