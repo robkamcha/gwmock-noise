@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -237,6 +238,7 @@ def _offline_hf_hub(tmp_path: Path, *, cached: bool) -> SimpleNamespace:
 def test_offline_falls_back_to_cache_with_warning(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """An unreachable Hub warns about the skipped ETag check and reuses the cache."""
     _write_dataset(tmp_path)
@@ -245,15 +247,17 @@ def test_offline_falls_back_to_cache_with_warning(
     _write_flat_psd(psd_file)
     model = _make_model(psd_file)
 
-    with pytest.warns(RuntimeWarning, match="skipping the ETag check"):
+    with caplog.at_level(logging.WARNING, logger="gwmock-noise"):
         waveform = model.generate_waveform(4096.0, rng=np.random.default_rng(0))
 
+    assert "skipping the ETag check" in caplog.text
     assert np.max(np.abs(waveform)) > 0.0
 
 
 def test_offline_without_cache_raises(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """An unreachable Hub with no cached files surfaces the not-found error."""
     _write_dataset(tmp_path)
@@ -262,8 +266,9 @@ def test_offline_without_cache_raises(
     _write_flat_psd(psd_file)
     model = _make_model(psd_file)
 
-    with pytest.warns(RuntimeWarning, match="skipping the ETag check"), pytest.raises(_StubLocalEntryNotFoundError):
+    with caplog.at_level(logging.WARNING, logger="gwmock-noise"), pytest.raises(_StubLocalEntryNotFoundError):
         model.generate_waveform(4096.0, rng=np.random.default_rng(0))
+    assert "skipping the ETag check" in caplog.text
 
 
 def test_generate_waveform_requires_optional_dependency(

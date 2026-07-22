@@ -439,7 +439,7 @@ def test_inject_glitches_raises_when_rng_is_missing_after_init(
     simulator = InjectGlitches(ZeroNoiseSimulator(), [model])
 
     def _broken_initialize(_: int | None) -> None:
-        simulator._rng = None
+        simulator._seed_sequence = None
 
     monkeypatch.setattr(simulator, "_initialize_process", _broken_initialize)
     with pytest.raises(RuntimeError, match="not initialized"):

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import importlib
-import warnings
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
@@ -13,6 +13,9 @@ import numpy as np
 from gwmock_noise.glitches._coloring import color_whitened_waveform, optimal_snr
 from gwmock_noise.glitches.models import GlitchModel
 from gwmock_noise.simulators._spectral import load_spectral_series
+from gwmock_noise.utils.log import LOGGER_NAME
+
+logger = logging.getLogger(LOGGER_NAME)
 
 DEEPEXTRACTOR_REPO_ID = "tomdooney/deepextractor-glitch-reconstructions"
 SAMPLES_FILENAME = "glitch_GAN_samples_scaled_balanced.npy"
@@ -224,11 +227,11 @@ class DeepExtractorGlitch(GlitchModel):
         try:
             return hf_hub.hf_hub_download(**kwargs, local_files_only=False)
         except _connection_error_types(hf_hub) as exc:
-            warnings.warn(
-                f"Could not reach the Hugging Face Hub to validate '{filename}' ({exc}); "
+            logger.warning(
+                "Could not reach the Hugging Face Hub to validate '%s' (%s); "
                 "skipping the ETag check and falling back to the local cache.",
-                RuntimeWarning,
-                stacklevel=2,
+                filename,
+                exc,
             )
             return hf_hub.hf_hub_download(**kwargs, local_files_only=True)
 
