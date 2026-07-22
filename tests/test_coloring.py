@@ -52,11 +52,25 @@ def test_zero_psd_yields_zero_waveform_and_snr() -> None:
     assert optimal_snr(colored, sampling_frequency=256.0) == 0.0
 
 
+def test_optimal_snr_handles_empty_waveform() -> None:
+    """optimal_snr returns zero instead of dividing by a zero-length waveform."""
+    empty = np.empty(0, dtype=float)
+    colored = ColoredWaveform(
+        time_series=empty,
+        frequency_series=np.empty(0, dtype=np.complex128),
+        interpolated_psd=empty,
+        band_mask=np.empty(0, dtype=bool),
+    )
+
+    assert optimal_snr(colored, sampling_frequency=256.0) == 0.0
+
+
 def test_interpolated_psd_is_raw_clipped_and_band_limited() -> None:
     """The returned PSD is unwindowed, non-negative, and zero outside the band."""
-    _, psd_values = _flat_psd_table()
+    frequencies_table, psd_values = _flat_psd_table()
     psd_values = psd_values.copy()
-    psd_values[10] = -3.0
+    negative_knot = 32.0  # inside the 8-96 Hz analysis band
+    psd_values[frequencies_table == negative_knot] = -3.0
 
     colored = _color(
         np.random.default_rng(1).normal(size=256),
@@ -71,10 +85,8 @@ def test_interpolated_psd_is_raw_clipped_and_band_limited() -> None:
     assert np.all(colored.interpolated_psd >= 0.0)
     assert not np.any(colored.interpolated_psd[~expected_mask])
     assert not np.any(colored.frequency_series[~expected_mask])
-    # Raw PSD equals the flat table inside the band (no Tukey taper applied),
-    # apart from the bin whose negative table value was clipped to zero.
-    interior = expected_mask & (frequencies != frequencies[expected_mask][0])
-    assert np.count_nonzero(colored.interpolated_psd[interior] == 1.0) >= interior.sum() - 2
+    # The in-band negative table value is clipped to zero at its own bin.
+    assert colored.interpolated_psd[frequencies == negative_knot] == 0.0
 
 
 def test_optimal_snr_matches_independent_computation() -> None:

@@ -123,6 +123,8 @@ def optimal_snr(colored: ColoredWaveform, *, sampling_frequency: float) -> float
         The optimal SNR.
     """
     n_samples = colored.time_series.size
+    if n_samples == 0:
+        return 0.0
     delta_frequency = sampling_frequency / n_samples
     valid = colored.band_mask & (colored.interpolated_psd > 0.0)
     if not np.any(valid):

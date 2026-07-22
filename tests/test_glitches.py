@@ -209,6 +209,30 @@ def test_glitch_realizations_are_independent_per_detector() -> None:
         assert abs(detector_count - expected) <= 4.0 * np.sqrt(expected)
 
 
+def test_detector_realization_is_independent_of_other_detectors() -> None:
+    """A detector's glitches do not depend on which other detectors are present."""
+    model = BlipGlitch(
+        rate=2.0,
+        amplitude_distribution=LogNormalAmplitudeDistribution(mean=1.0, std=0.0),
+        width=0.01,
+    )
+
+    together = InjectGlitches(ZeroNoiseSimulator(), [model]).generate(
+        duration=30.0, sampling_frequency=256.0, detectors=["H1", "L1"], seed=7
+    )
+    reordered = InjectGlitches(ZeroNoiseSimulator(), [model]).generate(
+        duration=30.0, sampling_frequency=256.0, detectors=["L1", "H1"], seed=7
+    )
+    h1_alone = InjectGlitches(ZeroNoiseSimulator(), [model]).generate(
+        duration=30.0, sampling_frequency=256.0, detectors=["H1"], seed=7
+    )
+
+    # H1's realization is identical regardless of L1's presence or ordering.
+    np.testing.assert_array_equal(together["H1"], reordered["H1"])
+    np.testing.assert_array_equal(together["L1"], reordered["L1"])
+    np.testing.assert_array_equal(together["H1"], h1_alone["H1"])
+
+
 def test_default_simulator_reports_glitch_metadata(tmp_path: Path) -> None:
     """DefaultNoiseSimulator dispatches glitch injection from config models."""
     out_dir = tmp_path / "output"
@@ -311,10 +335,10 @@ def test_draw_interarrival_handles_zero_rate_and_uninitialized_rng() -> None:
         width=0.01,
     )
     simulator = InjectGlitches(ZeroNoiseSimulator(), [model])
-    assert np.isinf(simulator._draw_interarrival(0.0))
-    simulator._rng = None
+    assert np.isinf(simulator._draw_interarrival(0.0, np.random.default_rng(0)))
+    simulator._seed_sequence = None
     with pytest.raises(RuntimeError, match="not initialized"):
-        simulator._draw_interarrival(0.1)
+        simulator._rng_for(0, "H1")
 
 
 def test_inject_glitches_reset_without_base_reset_still_succeeds() -> None:
